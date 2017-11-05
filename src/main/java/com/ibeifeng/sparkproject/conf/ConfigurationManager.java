@@ -76,5 +76,27 @@ public class ConfigurationManager {
     public static String getProperties(String key){
         return prop.getProperty(key);
     }
+
+    public static Integer getInteger(String key){
+        String value = getProperties(key);
+        try{
+            return Integer.valueOf(value);
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+        return 0;
+
+    }
+
+    public static Boolean getBoolean(String key){
+        String value = getProperties(key);
+        try{
+            return Boolean.valueOf(value);
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+        return false;
+
+    }
 }
 

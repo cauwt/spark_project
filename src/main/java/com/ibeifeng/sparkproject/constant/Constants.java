@@ -18,7 +18,7 @@ public interface Constants {
     String JDBC_USER_PROD = "jdbc.user.prod";
     String JDBC_PASSWORD_PROD = "jdbc.password.prod";
     String SPARK_LOCAL = "spark.local";
-    String SPARK_LOCAL_TASKID_SESSION = "spark.local.taskid.session";
+    String SPARK_LOCAL_TASKID_SESSION = "spark.local.taskid.spark";
     String SPARK_LOCAL_TASKID_PAGE = "spark.local.taskid.page";
     String SPARK_LOCAL_TASKID_PRODUCT = "spark.local.taskid.product";
     String KAFKA_METADATA_BROKER_LIST = "kafka.metadata.broker.list";
