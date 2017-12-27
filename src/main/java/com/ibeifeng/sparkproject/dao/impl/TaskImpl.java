@@ -23,7 +23,7 @@ public class TaskImpl implements ITaskDAO {
                 "        task_param \n" +
                 " from task where task_id = ?";
         Object[] params = new Object[] {taskId};
-        JDBCHelper jdbcHelper = JDBCHelper.getInstaince();
+        JDBCHelper jdbcHelper = JDBCHelper.getInstance();
         jdbcHelper.executeQuery(sql,params, (ResultSet rs) -> {
             if(rs.next()){
                 long taskid = rs.getLong(1);

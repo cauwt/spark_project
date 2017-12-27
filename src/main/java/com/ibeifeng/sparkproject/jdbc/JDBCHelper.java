@@ -47,7 +47,7 @@ public class JDBCHelper {
         }
 
     }
-    public static JDBCHelper getInstaince(){
+    public static JDBCHelper getInstance(){
         if (instance == null){
             synchronized (JDBCHelper.class){
                 if(instance == null){

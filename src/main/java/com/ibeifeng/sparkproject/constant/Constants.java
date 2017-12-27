@@ -43,6 +43,9 @@ public interface Constants {
     String FIELD_ORDER_COUNT = "orderCount";
     String FIELD_PAY_COUNT = "payCount";
     String FIELD_CATEGORY_ID = "categoryid";
+    String TABLE_USER_VISIT_ACTION = "user_visit_action";
+    String TABLE_USER_INFO = "user_info";
+    String TABLE_PRODUCT_INFO = "product_info";
 
     String SESSION_COUNT = "session_count";
 

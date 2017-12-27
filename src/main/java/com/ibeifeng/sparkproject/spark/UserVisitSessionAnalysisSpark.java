@@ -3,13 +3,16 @@ package com.ibeifeng.sparkproject.spark;
 import com.alibaba.fastjson.JSONObject;
 import com.ibeifeng.sparkproject.conf.ConfigurationManager;
 import com.ibeifeng.sparkproject.constant.Constants;
+import com.ibeifeng.sparkproject.dao.ISessionAggrStatDAO;
+import com.ibeifeng.sparkproject.dao.ISessionDetailDAO;
+import com.ibeifeng.sparkproject.dao.ISessionRandomExtractDAO;
 import com.ibeifeng.sparkproject.dao.ITaskDAO;
 import com.ibeifeng.sparkproject.dao.impl.DAOFactory;
+import com.ibeifeng.sparkproject.domain.SessionAggrStat;
+import com.ibeifeng.sparkproject.domain.SessionDetail;
+import com.ibeifeng.sparkproject.domain.SessionRandomExtract;
 import com.ibeifeng.sparkproject.domain.Task;
-import com.ibeifeng.sparkproject.util.DateUtils;
-import com.ibeifeng.sparkproject.util.ParamUtils;
-import com.ibeifeng.sparkproject.util.StringUtils;
-import com.ibeifeng.sparkproject.util.ValidUtils;
+import com.ibeifeng.sparkproject.util.*;
 import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
@@ -22,8 +25,7 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.hive.HiveContext;
 import scala.Tuple2;
 
-import java.util.Date;
-import java.util.Iterator;
+import java.util.*;
 
 /**
  * Created by zkpk on 11/5/17.
@@ -38,28 +40,47 @@ public class UserVisitSessionAnalysisSpark {
 
         mockData(spark);
 
-        ITaskDAO taskDAO = DAOFactory.getTaskDAO();
         long taskid = ParamUtils.getTaskIdFromArgs(args);
 
 
+        ITaskDAO taskDAO = DAOFactory.getTaskDAO();
         Task task = taskDAO.findById(taskid);
         JSONObject taskParam = JSONObject.parseObject(task.getTaskParam());
         JavaRDD<Row> actionRDD = getActionRDD(spark,taskParam);
         //<sessionid,<sessionid,searchKeywords,clickCategoryIds,age,professional,city,sex>>
         JavaPairRDD<String,String> sessionid2AggrInfoRDD =
                 aggregateBySession(spark,actionRDD);
-        sessionid2AggrInfoRDD.take(10).forEach(tuple -> System.out.println(tuple._2));
 
+        //refactor, filter and do stats
+        SessionAggrStatAccumulator sessionAggrAccumulator = new SessionAggrStatAccumulator();
+        spark.sparkContext().register(sessionAggrAccumulator);
+        //<sessionid,<sessionid,searchKeywords,clickCategoryIds,age,professional,city,sex>>
         JavaPairRDD<String,String> filteredSessionid2AggrInfoRDD =
-                filterSession(sessionid2AggrInfoRDD,taskParam);
-        filteredSessionid2AggrInfoRDD.takeSample(false,10).forEach(tuple -> System.out.println(tuple._2));
+                filterSessionAndAggrStat(sessionid2AggrInfoRDD,taskParam,sessionAggrAccumulator);
 
-        // ratio for each kind of sessions
+        // extract sessions randomly
+        JavaPairRDD<String, Row> sessionid2ActionRDD = getSessionid2ActionRDD(actionRDD);
+
+        // trigger spark job
+        System.out.println(filteredSessionid2AggrInfoRDD.count());
+        // calculate ratios for session groups defined by visit length and step length
+        calculateAndPersistAggrStat(sessionAggrAccumulator.value(), task.getTaskid());
+        randomExtractSession(task.getTaskid()
+                , filteredSessionid2AggrInfoRDD
+                , sessionid2ActionRDD);
+
+
 
 
         spark.stop();
     }
 
+
+
+    /**
+     * mock data : user, product, and visict action
+     * @param spark
+     */
     private static void mockData(SparkSession spark) {
         boolean local = ConfigurationManager.getBoolean(Constants.SPARK_LOCAL);
         if (local){
@@ -67,6 +88,11 @@ public class UserVisitSessionAnalysisSpark {
         }
     }
 
+    /**
+     * deprecated
+     * @param sc
+     * @return
+     */
     private static SQLContext getSQLContext(SparkContext sc){
         boolean local = ConfigurationManager.getBoolean(Constants.SPARK_LOCAL);
         if(local){
@@ -76,15 +102,51 @@ public class UserVisitSessionAnalysisSpark {
         }
     }
 
+    /**
+     * get actions filtered by date
+     * @param spark
+     * @param taskParam
+     * @return action info: date,user_id,sessionid,...
+     */
     private static JavaRDD<Row> getActionRDD(SparkSession spark, JSONObject taskParam){
         boolean local = ConfigurationManager.getBoolean(Constants.SPARK_LOCAL);
         String startDate = ParamUtils.getParam(taskParam,Constants.PARAM_START_DATE);
         String endDate = ParamUtils.getParam(taskParam,Constants.PARAM_END_DATE);
-        String sql = "select * from user_visit_action where date >='"+startDate+"' and date <= '"+endDate+"'";
+        String sql = "select  " +
+                "`date`" +
+                ", user_id" +
+                ", session_id" +
+                ", page_id" +
+                ", action_time" +
+                ", search_keyword" +
+                ", click_category_id" +
+                ", click_product_id" +
+                ", order_category_ids" +
+                ", order_product_ids" +
+                ", pay_category_ids" +
+                ", pay_product_ids" +
+                ", city_id " +
+                "from user_visit_action where date >='"+startDate+"' and date <= '"+endDate+"'";
         Dataset<Row> actionDF = spark.sql(sql);
+        actionDF.cache();
         return actionDF.javaRDD();
     }
 
+    /**
+     * get map of sessionid to action details
+     * @param actionRDD
+     * @return sessionid, row(session details)
+     */
+    private static JavaPairRDD<String, Row> getSessionid2ActionRDD(JavaRDD<Row> actionRDD) {
+        return actionRDD.mapToPair(row -> new Tuple2<>(row.getString(2),row));
+    }
+
+    /**
+     * do sessiton aggregration
+     * @param spark
+     * @param actionRDD
+     * @return <sessionid,<sessionid,searchKeywords,clickCategoryIds,age,professional,city,sex>>
+     */
     private static JavaPairRDD<String,String> aggregateBySession(SparkSession spark, JavaRDD<Row> actionRDD){
         //map to <sessionID, Row>
         JavaPairRDD<String, Row> sessionid2ActionRDD = actionRDD.mapToPair(
@@ -108,13 +170,7 @@ public class UserVisitSessionAnalysisSpark {
                         Row row = iterator.next();
                         String searchKeyword = row.getString(5);
 
-                        Long clickCategoryId = null;
-                        try {
-                            clickCategoryId = row.getLong(6);
-                        } catch (Exception e) {
-                            //e.printStackTrace();
-                            System.out.println(row.toString());
-                        }
+                        Long clickCategoryId = row.isNullAt(6)?null:row.getLong(6);
                         if(userid == null){
                             userid = row.getLong(1);
                         }
@@ -153,7 +209,7 @@ public class UserVisitSessionAnalysisSpark {
 
                     }
                     // calculate visit_length (in second)
-                    long visitLength = (endTime.getTime() - startTime.getTime())/1000;
+                    Long visitLength = (endTime.getTime() - startTime.getTime())/1000;
 
                     String searchKeywords = StringUtils.trimComma(searchKeywordsBuffer.toString());
                     String clickCategoryIds = StringUtils.trimComma(clickCategoryIdsBuffer.toString());
@@ -164,7 +220,8 @@ public class UserVisitSessionAnalysisSpark {
                             + "|"+Constants.FIELD_SEARCH_KEYWORDS+"="+searchKeywords
                             + "|"+Constants.FIELD_CLICK_CATEGORY_IDS+"="+clickCategoryIds
                             + "|"+Constants.FIELD_VISIT_LENGTH +"="+visitLength
-                            + "|"+Constants.FIELD_STEP_LENGTH +"="+stepLength;
+                            + "|"+Constants.FIELD_STEP_LENGTH +"="+stepLength
+                            + "|"+Constants.FIELD_START_TIME +"="+DateUtils.formatTime(startTime);
                     return new Tuple2<>(userid,partAggrInfo);
                 });
 
@@ -201,7 +258,15 @@ public class UserVisitSessionAnalysisSpark {
         return sessionid2FullAggrInfoRDD;
     }
 
-    private static JavaPairRDD<String, String> filterSession(JavaPairRDD sessionid2AggrInfoRDD, final JSONObject taskParam){
+    /**
+     * filter and do accumulator stats
+     * @param sessionid2AggrInfoRDD
+     * @param taskParam
+     * @param sessionAggrStatAccumulator
+     * @return <sessionid,<sessionid,searchKeywords,clickCategoryIds,age,professional,city,sex>>
+     */
+    private static JavaPairRDD<String, String> filterSessionAndAggrStat(JavaPairRDD sessionid2AggrInfoRDD
+            , final JSONObject taskParam, final SessionAggrStatAccumulator sessionAggrStatAccumulator){
 
         String startAge = ParamUtils.getParam(taskParam,Constants.PARAM_START_AGE);
         String endAge = ParamUtils.getParam(taskParam,Constants.PARAM_END_AGE);
@@ -227,7 +292,7 @@ public class UserVisitSessionAnalysisSpark {
 
 
         JavaPairRDD filteredSessionid2AggrInfoRDD = sessionid2AggrInfoRDD.filter(
-                (Function<Tuple2<String,String>,Boolean>) (tuple) ->{
+                (Function<Tuple2<String,String>,Boolean>) (Tuple2<String, String> tuple) ->{
             // step 1: get aggr info
             String aggrInfo = tuple._2;
             // step 2: filter by conditions
@@ -256,8 +321,275 @@ public class UserVisitSessionAnalysisSpark {
             if(!ValidUtils.equal(aggrInfo,Constants.FIELD_CATEGORY_ID,parameter,Constants.PARAM_CATEGORY_IDS)) {
                 return false;
             }
+
+            // all conditions passed
+            // aggregate by visit_length and step_length
+            sessionAggrStatAccumulator.add(Constants.SESSION_COUNT);
+            // aggregate by visit_length and step_length
+            Long visitLength = Long.valueOf(StringUtils.getFieldFromConcatString(aggrInfo,"\\|"
+                    ,Constants.FIELD_VISIT_LENGTH));
+                    Long stepLength = Long.valueOf(StringUtils.getFieldFromConcatString(aggrInfo,"\\|"
+                    ,Constants.FIELD_STEP_LENGTH));
+            // do group stats against visitLength
+            if(visitLength>=0 && visitLength <=3){
+                sessionAggrStatAccumulator.add(Constants.TIME_PERIOD_1s_3s);
+            } else if(visitLength>=4 && visitLength <=6){
+                sessionAggrStatAccumulator.add(Constants.TIME_PERIOD_4s_6s);
+            } else if(visitLength>=7 && visitLength <=9){
+                sessionAggrStatAccumulator.add(Constants.TIME_PERIOD_7s_9s);
+            } else if(visitLength>=10 && visitLength <=30){
+                sessionAggrStatAccumulator.add(Constants.TIME_PERIOD_10s_30s);
+            } else if(visitLength>=31 && visitLength <=60){
+                sessionAggrStatAccumulator.add(Constants.TIME_PERIOD_30s_60s);
+            } else if(visitLength>=1*60+1 && visitLength <=3*60){
+                sessionAggrStatAccumulator.add(Constants.TIME_PERIOD_1m_3m);
+            } else if(visitLength>=3*60+1 && visitLength <=10*60){
+                sessionAggrStatAccumulator.add(Constants.TIME_PERIOD_3m_10m);
+            } else if(visitLength>=10*60+1 && visitLength <=30*60){
+                sessionAggrStatAccumulator.add(Constants.TIME_PERIOD_10m_30m);
+            } else if(visitLength>=30*60+1){
+                sessionAggrStatAccumulator.add(Constants.TIME_PERIOD_30m);
+            }
+
+            // do stats against stepLength
+            if(stepLength>=1 && stepLength <=3){
+                sessionAggrStatAccumulator.add(Constants.STEP_PERIOD_1_3);
+            } else if(stepLength>=4 && stepLength <=6){
+                sessionAggrStatAccumulator.add(Constants.STEP_PERIOD_4_6);
+            } else if(stepLength>=7 && stepLength <=9){
+                sessionAggrStatAccumulator.add(Constants.STEP_PERIOD_7_9);
+            } else if(stepLength>=10 && stepLength <=30){
+                sessionAggrStatAccumulator.add(Constants.STEP_PERIOD_10_30);
+            } else if(stepLength>=31 && stepLength <=60){
+                sessionAggrStatAccumulator.add(Constants.STEP_PERIOD_30_60);
+            } else if(stepLength>=61 ){
+                sessionAggrStatAccumulator.add(Constants.STEP_PERIOD_60);
+            }
+
             return true;
         });
         return filteredSessionid2AggrInfoRDD;
     }
+
+    /**
+     * extract sessions randomly
+     * @param sessionid2AggrInfoRDD
+     * @return (yyyy-MM-dd_HH, aggrInfo)
+     */
+    private static void randomExtractSession(final long taskid
+            , JavaPairRDD<String, String> sessionid2AggrInfoRDD,JavaPairRDD<String, Row> sessionid2ActionRDD) {
+        // step 1. count sessions per hour per day. return <yyyy-MM-dd_HH, sessionid>
+        JavaPairRDD<String, String> time2SessionidRDD = sessionid2AggrInfoRDD.mapToPair(
+                tuple -> {
+                    String aggrInfo = tuple._2;
+                    String startTime = StringUtils.getFieldFromConcatString(aggrInfo,"\\|",Constants.FIELD_START_TIME);
+                    String dateHour = DateUtils.getDateHour(startTime);
+                    return new Tuple2<>(dateHour,aggrInfo);
+                }
+        );
+        Map<String, Long> countMap = time2SessionidRDD.countByKey();
+        // step 2. use the algorithm of time-ratio-random-extraction to get indexes of the extracted sessions
+        // per hour per day
+        // step 2.1. transform <yyyy-MM-dd_HH,count> to <yyyy-MM-dd,<HH,count>>
+        Map<String, Map<String, Long>> dateHourCountMap = new HashMap();
+        Random random = new Random();
+        countMap.forEach((dateHour,count) ->{
+            String date = dateHour.split("_")[0];
+            String hour = dateHour.split("_")[1];
+            Map<String, Long> hourCountMap = dateHourCountMap.get(date);
+            if(hourCountMap == null){
+                hourCountMap = new HashMap<String, Long>();
+                dateHourCountMap.put(date,hourCountMap);
+            }
+            hourCountMap.put(hour,count);
+        });
+
+        // step 2.2. implement the algorithm of time-ratio-random-extraction
+        int extractNumberPerDay = 100/dateHourCountMap.size();
+        // <date,<hour,[3,5,20]>>
+        final Map<String, Map<String,List<Integer>>> dateHourExtractMap = new HashMap<>();
+        dateHourCountMap.forEach((date,hourCountMap)->{
+            //calculate the session count on the date
+            Long sessionCount = 0L;
+            for (Long hourCount:hourCountMap.values()
+                 ) {
+                sessionCount += hourCount;
+            }
+            final Long sessionCountFinal = sessionCount;
+
+            Map<String,List<Integer>> hourExtractMap = dateHourExtractMap.get(date);
+
+            if(hourExtractMap == null){
+                hourExtractMap = new HashMap<>();
+                dateHourExtractMap.put(date,hourExtractMap);
+            }
+
+            // traverse each hour
+            for (Map.Entry<String,Long> hourCountEntry: hourCountMap.entrySet()){
+                String hour = hourCountEntry.getKey();
+                long count = hourCountEntry.getValue();
+                //System.out.println("hour: "+ hour + ",Count: "+ count);
+                int hourExtractNumber = (int)((double)count/(double)sessionCountFinal*extractNumberPerDay);
+                if(hourExtractNumber > count){
+                    hourExtractNumber = (int)count;
+                }
+                // get random sessionid list for current hour
+
+                //System.out.println("hourExtractMap == null? "+ (hourExtractMap == null ? "Yes":"No"));
+                List<Integer> extractIndexList = hourExtractMap.get(hour);
+                if(extractIndexList == null){
+                    extractIndexList = new ArrayList<>();
+                    hourExtractMap.put(hour,extractIndexList);
+                }
+
+                // generate hourExtractNumber random session ids
+                for(int i = 0; i< hourExtractNumber; i++){
+                    int extractIndex= random.nextInt((int)count);
+                    while(extractIndexList.contains(extractIndex)){
+                        extractIndex= random.nextInt((int)count);
+                    }
+                    extractIndexList.add(extractIndex);
+                }
+            }
+        });
+
+        // step 3: extract sessions from time2SessionidRDD according to session ids extracted randomly
+        // do groupBy to get <dateHour, (session aggrInfo)>
+        JavaPairRDD<String, Iterable<String>> time2SessionsRDD = time2SessionidRDD.groupByKey();
+
+        // get specific sessions and write them to mysql table random_extract_session
+        // place the session ids into extractSessionsRDD
+        // and then use the sessionids to join sessionid2AggrInfoRDD to get detail information for extracted
+        // sessions and write them to mysql table session_detail
+        JavaPairRDD<String, String> extractSessionsRDD = time2SessionsRDD.flatMapToPair(tuple->{
+            List<Tuple2<String, String>> extractSessionids = new ArrayList<>();
+
+            String dateHour = tuple._1;
+            String date = dateHour.split("_")[0];
+            String hour = dateHour.split("_")[1];
+            List<Integer> extractIndexList = dateHourExtractMap.get(date).get(hour);
+
+            ISessionRandomExtractDAO sessionRandomExtractDAO = DAOFactory.getSessionRandomExtractDAO();
+
+            int index = 0;
+            Iterator<String> iterator = tuple._2.iterator();
+            while(iterator.hasNext()){
+                String sessionAggrInfo = iterator.next();
+                if(extractIndexList.contains(index)){
+                    // write session aggr info to table using DAO
+                    SessionRandomExtract sessionRandomExtract = new SessionRandomExtract();
+                    sessionRandomExtract.setTaskid(taskid);
+                    String sessionid = StringUtils.getFieldFromConcatString(
+                            sessionAggrInfo,"\\|",Constants.FIELD_SESSION_ID);
+                    sessionRandomExtract.setSessionid(sessionid);
+                    sessionRandomExtract.setStartTime(StringUtils.getFieldFromConcatString(
+                            sessionAggrInfo,"\\|",Constants.FIELD_START_TIME));
+                    sessionRandomExtract.setSearchKeywords(StringUtils.getFieldFromConcatString(
+                            sessionAggrInfo,"\\|",Constants.FIELD_SEARCH_KEYWORDS));
+                    sessionRandomExtract.setClickCategoryIds(StringUtils.getFieldFromConcatString(
+                            sessionAggrInfo,"\\|",Constants.FIELD_CLICK_CATEGORY_IDS));
+                    // write to table
+                    sessionRandomExtractDAO.insert(sessionRandomExtract);
+                    // add sessionid to the list
+                    extractSessionids.add(new Tuple2<String,String>(sessionid,sessionid));
+                }
+                index++;
+            }
+            return extractSessionids.iterator();
+        });
+
+        // step 4. get session details by joining extractSessionsRDD and sessionid2ActionRDD
+        JavaPairRDD<String, Tuple2<String, Row>> extractSessionDetailRDD =
+                extractSessionsRDD.join(sessionid2ActionRDD);
+
+        ISessionDetailDAO sessionDetailDAO = DAOFactory.getSessionDetailDAO();
+
+        extractSessionDetailRDD.foreach(item ->{
+            Row row = item._2._2;
+            SessionDetail sessionDetail = new SessionDetail();
+            sessionDetail.setTaskid(taskid);
+            sessionDetail.setUserid(row.getLong(1));
+            sessionDetail.setSessionid(row.getString(2));
+            sessionDetail.setPageid(row.getLong(3));
+            sessionDetail.setActionTime(row.getString(4));
+            sessionDetail.setSearchKeyword(row.getString(5));
+            sessionDetail.setClickCategoryId(row.isNullAt(6)? null: row.getLong(6));
+            sessionDetail.setClickProductId(row.isNullAt(7)? null: row.getLong(7));
+            sessionDetail.setOrderCategoryIds(row.getString(8));
+            sessionDetail.setOrderProductIds(row.getString(9));
+            sessionDetail.setPayCategoryIds(row.getString(10));
+            sessionDetail.setPayProductIds(row.getString(11));
+            sessionDetailDAO.insert(sessionDetail);
+        });
+    }
+
+    /**
+     * calculate ratios of session groups and write the the result into mysql
+     * @param value
+     */
+    private static void calculateAndPersistAggrStat(String value, long taskid) {
+        long sessionCount = Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.SESSION_COUNT));
+        long time_period_1s_3s = Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.TIME_PERIOD_1s_3s));
+        long time_period_4s_6s = Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.TIME_PERIOD_4s_6s));
+        long time_period_7s_9s = Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.TIME_PERIOD_7s_9s));
+        long time_period_10s_30s = Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.TIME_PERIOD_10s_30s));
+        long time_period_30s_60s = Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.TIME_PERIOD_30s_60s));
+        long time_period_1m_3m = Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.TIME_PERIOD_1m_3m));
+        long time_period_3m_10m = Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.TIME_PERIOD_3m_10m));
+        long time_period_10m_30m = Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.TIME_PERIOD_10m_30m));
+        long time_period_30m = Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.TIME_PERIOD_30m));
+
+        long step_period_1_3 = Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.STEP_PERIOD_1_3));
+        long step_period_4_6 = Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.STEP_PERIOD_4_6));
+        long step_period_7_9 = Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.STEP_PERIOD_7_9));
+        long step_period_10_30 = Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.STEP_PERIOD_10_30));
+        long step_period_30_60= Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.STEP_PERIOD_30_60));
+        long step_period_60 = Long.valueOf(StringUtils.getFieldFromConcatString(value,"\\|",Constants.STEP_PERIOD_60));
+        
+        //to avoid DividedByZero exception
+        double sessionCount2 = (sessionCount ==0?1:sessionCount);
+        double time_period_1s_3s_ratio = NumberUtils.formatDouble(time_period_1s_3s/sessionCount2,2);
+        double time_period_4s_6s_ratio = NumberUtils.formatDouble(time_period_4s_6s/sessionCount2,2);
+        double time_period_7s_9s_ratio = NumberUtils.formatDouble(time_period_7s_9s/sessionCount2,2);
+        double time_period_10s_30s_ratio = NumberUtils.formatDouble(time_period_10s_30s/sessionCount2,2);
+        double time_period_30s_60s_ratio = NumberUtils.formatDouble(time_period_30s_60s/sessionCount2,2);
+        double time_period_1m_3m_ratio = NumberUtils.formatDouble(time_period_1m_3m/sessionCount2,2);
+        double time_period_3m_10m_ratio = NumberUtils.formatDouble(time_period_3m_10m/sessionCount2,2);
+        double time_period_10m_30m_ratio = NumberUtils.formatDouble(time_period_10m_30m/sessionCount2,2);
+        double time_period_30m_ratio = NumberUtils.formatDouble(time_period_30m/sessionCount2,2);
+
+        double step_period_1_3_ratio = NumberUtils.formatDouble(step_period_1_3/sessionCount2,2);
+        double step_period_4_6_ratio = NumberUtils.formatDouble(step_period_4_6/sessionCount2,2);
+        double step_period_7_9_ratio = NumberUtils.formatDouble(step_period_7_9/sessionCount2,2);
+        double step_period_10_30_ratio = NumberUtils.formatDouble(step_period_10_30/sessionCount2,2);
+        double step_period_30_60_ratio = NumberUtils.formatDouble(step_period_30_60/sessionCount2,2);
+        double step_period_60_ratio = NumberUtils.formatDouble(step_period_60/sessionCount2,2);
+
+        //write to mysql
+        SessionAggrStat sessionAggrStat = new SessionAggrStat();
+        sessionAggrStat.setTaskid(taskid);
+        sessionAggrStat.setSession_count(sessionCount);
+        sessionAggrStat.setTime_period_1s_3s_ratio(time_period_1s_3s_ratio);
+        sessionAggrStat.setTime_period_4s_6s_ratio(time_period_4s_6s_ratio);
+        sessionAggrStat.setTime_period_7s_9s_ratio(time_period_7s_9s_ratio);
+        sessionAggrStat.setTime_period_10s_30s_ratio(time_period_10s_30s_ratio);
+        sessionAggrStat.setTime_period_30s_60s_ratio(time_period_30s_60s_ratio);
+        sessionAggrStat.setTime_period_1m_3m_ratio(time_period_1m_3m_ratio);
+        sessionAggrStat.setTime_period_3m_10m_ratio(time_period_3m_10m_ratio);
+        sessionAggrStat.setTime_period_10m_30m_ratio(time_period_10m_30m_ratio);
+        sessionAggrStat.setTime_period_30m_ratio(time_period_30m_ratio);
+
+        sessionAggrStat.setStep_period_1_3_ratio(step_period_1_3_ratio);
+        sessionAggrStat.setStep_period_4_6_ratio(step_period_4_6_ratio);
+        sessionAggrStat.setStep_period_7_9_ratio(step_period_7_9_ratio);
+        sessionAggrStat.setStep_period_10_30_ratio(step_period_10_30_ratio);
+        sessionAggrStat.setStep_period_30_60_ratio(step_period_30_60_ratio);
+        sessionAggrStat.setStep_period_60_ratio(step_period_60_ratio);
+
+        ISessionAggrStatDAO sessionAggrStatDAO = DAOFactory.getSessionAggrStatDAO();
+        sessionAggrStatDAO.insert(sessionAggrStat);
+    }
+
+
+
 }

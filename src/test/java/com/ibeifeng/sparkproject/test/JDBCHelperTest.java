@@ -2,18 +2,15 @@ package com.ibeifeng.sparkproject.test;
 
 import com.ibeifeng.sparkproject.jdbc.JDBCHelper;
 
-import java.sql.ResultSet;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Created by zkpk on 11/5/17.
  */
 public class JDBCHelperTest {
     public static void main(String[] args) throws Exception{
-        JDBCHelper jdbcHelper = JDBCHelper.getInstaince();
+        JDBCHelper jdbcHelper = JDBCHelper.getInstance();
         //test executeUpdate
         //jdbcHelper.executeUpdate("insert into test_user(name,age) values(?,?);",
         //        new Object[] {"wanger",28});
