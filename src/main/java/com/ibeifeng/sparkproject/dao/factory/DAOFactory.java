@@ -1,9 +1,7 @@
-package com.ibeifeng.sparkproject.dao.impl;
+package com.ibeifeng.sparkproject.dao.factory;
 
-import com.ibeifeng.sparkproject.dao.ISessionAggrStatDAO;
-import com.ibeifeng.sparkproject.dao.ISessionDetailDAO;
-import com.ibeifeng.sparkproject.dao.ISessionRandomExtractDAO;
-import com.ibeifeng.sparkproject.dao.ITaskDAO;
+import com.ibeifeng.sparkproject.dao.*;
+import com.ibeifeng.sparkproject.dao.impl.*;
 
 /**
  * Created by zkpk on 11/5/17.
@@ -24,5 +22,8 @@ public class DAOFactory {
 
     public static ISessionDetailDAO getSessionDetailDAO(){
         return new SessionDetailDAOImpl();
+    }
+    public static ITop10CategoryDAO getTop10CategoryDAO(){
+        return new Top10CategoryDAOImpl();
     }
 }

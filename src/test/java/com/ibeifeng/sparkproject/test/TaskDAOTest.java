@@ -1,7 +1,7 @@
 package com.ibeifeng.sparkproject.test;
 
 import com.ibeifeng.sparkproject.dao.ITaskDAO;
-import com.ibeifeng.sparkproject.dao.impl.DAOFactory;
+import com.ibeifeng.sparkproject.dao.factory.DAOFactory;
 import com.ibeifeng.sparkproject.domain.Task;
 
 /**
