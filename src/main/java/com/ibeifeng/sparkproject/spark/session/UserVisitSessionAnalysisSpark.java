@@ -82,7 +82,7 @@ public class UserVisitSessionAnalysisSpark {
         List<Tuple2<CategorySortKey,String>> top10CategoryList = getTop10Category(taskId, sessionId2DetailRDD);
 
         // feature 4: get top 10 active sessions
-        getTop10Session(spark,taskId, top10CategoryList, sessionId2DetailRDD);
+        getTop10CategorySession(spark,taskId, top10CategoryList, sessionId2DetailRDD);
 
         spark.stop();
     }
@@ -829,9 +829,9 @@ public class UserVisitSessionAnalysisSpark {
      * @param taskId
      * @param sessionId2DetailRDD
      */
-    private static void getTop10Session(SparkSession spark, long taskId,
-                                        List<Tuple2<CategorySortKey,String>> top10CategoryList,
-                                        JavaPairRDD<String, Row> sessionId2DetailRDD) {
+    private static void getTop10CategorySession(SparkSession spark, long taskId,
+                                                List<Tuple2<CategorySortKey,String>> top10CategoryList,
+                                                JavaPairRDD<String, Row> sessionId2DetailRDD) {
         /**
          * step 1. generate an RDD from top 10 category list
          */
@@ -897,7 +897,6 @@ public class UserVisitSessionAnalysisSpark {
                     String[] sessionCounts = new String[10];
                     while(iterator.hasNext()){
                         String sessionCount = iterator.next();
-                        String sessionId = sessionCount.split(",")[0];
                         Long count = Long.valueOf(sessionCount.split(",")[1]);
                         for(int i =0; i< sessionCounts.length; i++){
                             if(sessionCounts[i]== null){
