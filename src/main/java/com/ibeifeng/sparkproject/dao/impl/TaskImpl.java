@@ -26,7 +26,6 @@ public class TaskImpl implements ITaskDAO {
         JDBCHelper jdbcHelper = JDBCHelper.getInstance();
         jdbcHelper.executeQuery(sql,params, (ResultSet rs) -> {
             if(rs.next()){
-                long taskId = rs.getLong(1);
                 String taskName = rs.getString(2);
                 String createTime = rs.getString(3);
                 String startTime = rs.getString(4);

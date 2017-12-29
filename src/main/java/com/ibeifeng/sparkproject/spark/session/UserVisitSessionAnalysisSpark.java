@@ -17,6 +17,7 @@ import org.apache.spark.sql.*;
 import org.apache.spark.sql.hive.HiveContext;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructType;
+import org.apache.spark.storage.StorageLevel;
 import scala.Tuple2;
 import java.util.*;
 import org.apache.spark.api.java.Optional;
@@ -42,9 +43,12 @@ public class UserVisitSessionAnalysisSpark {
         Task task = taskDAO.findById(taskId);
         JSONObject taskParam = JSONObject.parseObject(task.getTaskParam());
         JavaRDD<Row> actionRDD = getActionRDD(spark,taskParam);
-        // get sessionId 2 action
+
+        // get sessionId 2 action and persist it
         JavaPairRDD<String, Row> sessionId2ActionRDD = getSessionId2ActionRDD(actionRDD);
-        //<sessionId,<sessionId,searchKeywords,clickCategoryIds,age,professional,city,sex>>
+        sessionId2ActionRDD = sessionId2ActionRDD.persist(StorageLevel.MEMORY_ONLY());
+
+        // get sessionId to AggrInfo : <sessionId,<sessionId,searchKeywords,clickCategoryIds,age,professional,city,sex>>
         JavaPairRDD<String,String> sessionId2AggrInfoRDD =
                 aggregateBySession(spark,sessionId2ActionRDD);
 
@@ -54,12 +58,12 @@ public class UserVisitSessionAnalysisSpark {
         //<sessionId,<sessionId,searchKeywords,clickCategoryIds,age,professional,city,sex>>
         JavaPairRDD<String,String> filteredSessionId2AggrInfoRDD =
                 filterSessionAndAggrStat(sessionId2AggrInfoRDD,taskParam,sessionAggrAccumulator);
-
+        filteredSessionId2AggrInfoRDD = filteredSessionId2AggrInfoRDD.persist(StorageLevel.MEMORY_ONLY());
 
         // get shared sessionId2DetailRDD for later usages
         JavaPairRDD<String, Row> sessionId2DetailRDD = getSessionId2DetailRDD(
                 filteredSessionId2AggrInfoRDD,sessionId2ActionRDD);
-
+        sessionId2DetailRDD = sessionId2DetailRDD.persist(StorageLevel.MEMORY_ONLY());
 
 
 
@@ -71,7 +75,7 @@ public class UserVisitSessionAnalysisSpark {
         // extract sessions randomly
         randomExtractSession(task.getTaskId()
                 , filteredSessionId2AggrInfoRDD
-                , sessionId2ActionRDD);
+                , sessionId2DetailRDD);
 
 
         // feature 3: get top 10 categories most clicked, ordered and paid.
