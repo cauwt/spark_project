@@ -1,4 +1,4 @@
-package com.ibeifeng.sparkproject.spark;
+package com.ibeifeng.sparkproject.spark.session;
 
 import com.ibeifeng.sparkproject.constant.Constants;
 import com.ibeifeng.sparkproject.util.StringUtils;

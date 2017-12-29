@@ -1,4 +1,4 @@
-package com.ibeifeng.sparkproject.spark;
+package com.ibeifeng.sparkproject.spark.session;
 
 import com.alibaba.fastjson.JSONObject;
 import com.ibeifeng.sparkproject.conf.ConfigurationManager;
@@ -6,17 +6,17 @@ import com.ibeifeng.sparkproject.constant.Constants;
 import com.ibeifeng.sparkproject.dao.*;
 import com.ibeifeng.sparkproject.dao.factory.DAOFactory;
 import com.ibeifeng.sparkproject.domain.*;
+import com.ibeifeng.sparkproject.spark.MockData;
 import com.ibeifeng.sparkproject.util.*;
 import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.PairFunction;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
-import org.apache.spark.sql.SQLContext;
-import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.*;
 import org.apache.spark.sql.hive.HiveContext;
+import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.StructType;
 import scala.Tuple2;
 import java.util.*;
 import org.apache.spark.api.java.Optional;
@@ -53,8 +53,13 @@ public class UserVisitSessionAnalysisSpark {
         JavaPairRDD<String,String> filteredSessionid2AggrInfoRDD =
                 filterSessionAndAggrStat(sessionid2AggrInfoRDD,taskParam,sessionAggrAccumulator);
 
-        // extract sessions randomly
+        // get sessionid 2 action
         JavaPairRDD<String, Row> sessionid2ActionRDD = getSessionid2ActionRDD(actionRDD);
+
+        // get shared sessionid2DetailRDD for later usages
+        JavaPairRDD<String, Row> sessionid2DetailRDD = getSessionid2DetailRDD(
+                filteredSessionid2AggrInfoRDD,sessionid2ActionRDD);
+
 
 
 
@@ -62,13 +67,18 @@ public class UserVisitSessionAnalysisSpark {
         System.out.println(filteredSessionid2AggrInfoRDD.count());
         // calculate ratios for session groups defined by visit length and step length
         calculateAndPersistAggrStat(sessionAggrAccumulator.value(), task.getTaskid());
+
+        // extract sessions randomly
         randomExtractSession(task.getTaskid()
                 , filteredSessionid2AggrInfoRDD
                 , sessionid2ActionRDD);
 
 
-        //function 3: get top 10 categories most clicked, ordered and paid.
-        getTop10Category(taskid, filteredSessionid2AggrInfoRDD, sessionid2ActionRDD);
+        // feature 3: get top 10 categories most clicked, ordered and paid.
+        List<Tuple2<CategorySortKey,String>> top10CategoryList = getTop10Category(taskid, sessionid2DetailRDD);
+
+        // feature 4: get top 10 active sessions
+        getTop10Session(spark,taskid, top10CategoryList, sessionid2DetailRDD);
 
         spark.stop();
     }
@@ -370,6 +380,20 @@ public class UserVisitSessionAnalysisSpark {
     }
 
     /**
+     * get detail information for eligible sessions
+     * @param sessionid2AggrInfoRDD
+     * @param sessionid2ActionRDD
+     * @return
+     */
+    private static JavaPairRDD<String, Row> getSessionid2DetailRDD(
+            JavaPairRDD<String, String> sessionid2AggrInfoRDD,
+            JavaPairRDD<String, Row> sessionid2ActionRDD
+    ){
+        JavaPairRDD<String, Row> sessionid2DetailRDD = sessionid2AggrInfoRDD.join(sessionid2ActionRDD)
+                .mapToPair(item -> new Tuple2<>(item._1, item._2._2));
+        return sessionid2DetailRDD;
+    }
+    /**
      * extract sessions randomly
      * @param sessionid2AggrInfoRDD
      * @return (yyyy-MM-dd_HH, aggrInfo)
@@ -589,19 +613,14 @@ public class UserVisitSessionAnalysisSpark {
     }
 
     /**
-     * get top 10 categoriies
-     * @param filteredSessionid2AggrInfoRDD
-     * @param sessionid2ActionRDD
+     * get top 10 categories
+     * @param sessionid2DetailRDD
      */
-    private static void getTop10Category(Long taskId, JavaPairRDD<String, String> filteredSessionid2AggrInfoRDD,
-                                         JavaPairRDD<String, Row> sessionid2ActionRDD) {
+    private static List<Tuple2<CategorySortKey,String>> getTop10Category(Long taskId, JavaPairRDD<String, Row> sessionid2DetailRDD) {
         /**
          * step 1. get all categories accessed by eligible sessions
           */
 
-        // get details for eligible sessions
-        JavaPairRDD<String, Row> sessionid2DetailRDD = filteredSessionid2AggrInfoRDD.join(sessionid2ActionRDD)
-                .mapToPair(item -> new Tuple2<>(item._1, item._2._2));
         // get all categories accessed (clicked, ordered, or paid)
         // (categoryid, categoryid)
         JavaPairRDD<Long,Long> categoryidRDD = sessionid2DetailRDD.flatMapToPair(tuple ->{
@@ -631,7 +650,7 @@ public class UserVisitSessionAnalysisSpark {
             return list.iterator();
 
         });
-
+        categoryidRDD = categoryidRDD.distinct();
         /**
          * step 2. calculate each category's count of click, order, and payment
          */
@@ -704,6 +723,7 @@ public class UserVisitSessionAnalysisSpark {
 
             top10CategoryDAO.insert(top10Category);
         }
+        return top10CategoryList;
     }
 
 
@@ -801,4 +821,150 @@ public class UserVisitSessionAnalysisSpark {
         });
         return tmpMapRDD;
     }
+
+    /**
+     * get top 10 active sessions
+     * @param taskid
+     * @param sessionid2DetailRDD
+     */
+    private static void getTop10Session(SparkSession spark, long taskid,
+                                        List<Tuple2<CategorySortKey,String>> top10CategoryList,
+                                        JavaPairRDD<String, Row> sessionid2DetailRDD) {
+        /**
+         * step 1. generate an RDD from top 10 category list
+         */
+        List<Row> top10CategoryIdList = new ArrayList<>();
+        for (Tuple2<CategorySortKey,String> category:  top10CategoryList
+             ) {
+            Long categoryId = Long.valueOf(StringUtils.getFieldFromConcatString(
+                    category._2,"\\|",Constants.FIELD_CATEGORY_ID
+            ));
+            Row row = RowFactory.create(categoryId);
+            top10CategoryIdList.add(row);
+        }
+        StructType schema = DataTypes.createStructType(Arrays.asList(
+                DataTypes.createStructField("category_id", DataTypes.LongType, true)));
+        Dataset<Row> top10CategoryDataSet = spark.createDataFrame(top10CategoryIdList, schema);
+        JavaPairRDD<Long, Long> top10CategoryRDD = top10CategoryDataSet.toJavaRDD().mapToPair(
+                row -> new Tuple2<>(row.getLong(0),row.getLong(0)));
+
+        /**
+         * step 2. calculate session's click count for each category
+         */
+        JavaPairRDD<String, Iterable<Row>> sessionid2DetailsRDD = sessionid2DetailRDD.groupByKey();
+
+        JavaPairRDD<Long,String> category2SessionCountRDD = sessionid2DetailsRDD.flatMapToPair(tuple ->{
+            String sessionid = tuple._1;
+            Iterator<Row> iterator = tuple._2.iterator();
+            Map<Long, Long> categoryCountMap = new HashMap<>();
+            while(iterator.hasNext()){
+                Row row = iterator.next();
+                if(!row.isNullAt(6)){
+                    Long categoryid = row.getLong(6);
+                    Long count = categoryCountMap.get(categoryid);
+                    if(count == null){
+                        count = 0L;
+                    }
+                    count ++;
+                    categoryCountMap.put(categoryid,count);
+                }
+            }
+            // return: <categoryid, "sessionid,count">
+            List<Tuple2<Long,String>> category2SessionCountList = new ArrayList<>();
+            categoryCountMap.forEach((categoryid,count) -> {
+                category2SessionCountList.add(new Tuple2<>(categoryid,sessionid+","+count));
+            });
+            return category2SessionCountList.iterator();
+        });
+
+        //get session's click count for each category
+        // format: <categoryid, "sessionid,count">
+        JavaPairRDD<Long,String> top10CategorySessionCountRDD = top10CategoryRDD.join(category2SessionCountRDD)
+                .mapToPair(tuple -> new Tuple2<>(tuple._1,tuple._2._2));
+
+        /**
+         * step 3. get top 10 sessions for each category
+         */
+        //group by category
+        JavaPairRDD<Long,Iterable<String>> top10Category2SessionCountRDD = top10CategorySessionCountRDD.groupByKey();
+        //<sessionid, sessionid> and write top 10 category session into mysql table
+        JavaPairRDD<String,String> top10CateGorySessionRDD = top10Category2SessionCountRDD.flatMapToPair(
+                tuple ->{
+                    Long categoryid = tuple._1;
+                    Iterator<String> iterator = tuple._2.iterator();
+                    String[] sessionCounts = new String[10];
+                    while(iterator.hasNext()){
+                        String sessionCount = iterator.next();
+                        String sessionid = sessionCount.split(",")[0];
+                        Long count = Long.valueOf(sessionCount.split(",")[1]);
+                        for(int i =0; i< sessionCounts.length; i++){
+                            if(sessionCounts[i]== null){
+                                sessionCounts[i] = sessionCount;
+                                break;
+                            } else {
+                                Long count1 = Long.valueOf(sessionCounts[i].split(",")[1]);
+                                if(count > count1) {
+                                    for(int j =sessionCounts.length-1; j> i; j--) {
+                                        sessionCounts[j] = sessionCounts[j-1];
+                                    }
+                                    sessionCounts[i] = sessionCount;
+                                    break;
+                                }
+                            }
+                        }
+
+                    }
+                    //write sessionCounts to mysql table
+                    List<Tuple2<String, String>> list = new ArrayList<>();
+                    ITop10CategorySessionDAO top10CategorySessionDAO = DAOFactory.getTop10CategorySessionDAO();
+                    for(int i =0; i< sessionCounts.length; i++){
+                        if(sessionCounts[i]== null){
+                            break;
+                        } else {
+                            String sessionid = sessionCounts[i].split(",")[0];
+                            Long clickCount = Long.valueOf(sessionCounts[i].split(",")[1]);
+                            Top10CategorySession top10CategorySession = new Top10CategorySession();
+                            top10CategorySession.setTaskId(taskid);
+                            top10CategorySession.setCategoryId(categoryid);
+                            top10CategorySession.setSessionId(sessionid);
+                            top10CategorySession.setClickCount(clickCount);
+                            top10CategorySessionDAO.insert(top10CategorySession);
+
+                            // add to list
+                            list.add(new Tuple2<>(sessionid, sessionid));
+                        }
+                    }
+                return list.iterator();
+                }
+        );
+
+        /**
+         * step 4. get session details and write them to mysql table
+         */
+        JavaPairRDD<String, Tuple2<String, Row>> top10SessionDetailRDD =
+                top10CateGorySessionRDD.join(sessionid2DetailRDD);
+
+        ISessionDetailDAO sessionDetailDAO = DAOFactory.getSessionDetailDAO();
+
+        top10SessionDetailRDD.foreach(item ->{
+            Row row = item._2._2;
+            SessionDetail sessionDetail = new SessionDetail();
+            sessionDetail.setTaskid(taskid);
+            sessionDetail.setUserid(row.getLong(1));
+            sessionDetail.setSessionid(row.getString(2));
+            sessionDetail.setPageid(row.getLong(3));
+            sessionDetail.setActionTime(row.getString(4));
+            sessionDetail.setSearchKeyword(row.getString(5));
+            sessionDetail.setClickCategoryId(row.isNullAt(6)? null: row.getLong(6));
+            sessionDetail.setClickProductId(row.isNullAt(7)? null: row.getLong(7));
+            sessionDetail.setOrderCategoryIds(row.getString(8));
+            sessionDetail.setOrderProductIds(row.getString(9));
+            sessionDetail.setPayCategoryIds(row.getString(10));
+            sessionDetail.setPayProductIds(row.getString(11));
+            sessionDetailDAO.insert(sessionDetail);
+        });
+
+
+    }
+
 }
