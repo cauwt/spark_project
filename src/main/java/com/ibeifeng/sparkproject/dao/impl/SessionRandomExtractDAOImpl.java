@@ -16,8 +16,8 @@ public class SessionRandomExtractDAOImpl implements ISessionRandomExtractDAO {
                 "start_time, " +
                 "search_keywords, " +
                 "click_category_ids) VALUES (?,?,?,?,?);";
-        Object[] params = new Object[]{sessionRandomExtract.getTaskid()
-                ,sessionRandomExtract.getSessionid()
+        Object[] params = new Object[]{sessionRandomExtract.getTaskId()
+                ,sessionRandomExtract.getSessionId()
                 ,sessionRandomExtract.getStartTime()
                 ,sessionRandomExtract.getSearchKeywords()
                 ,sessionRandomExtract.getClickCategoryIds()};

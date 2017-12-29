@@ -9,7 +9,7 @@ public class Task implements Serializable {
 
     private static final long serialVersionUID = 3518776796426921776L;
 
-    private long taskid;
+    private long taskId;
     private String taskName;
     private String createTime;
     private String startTime;
@@ -18,12 +18,12 @@ public class Task implements Serializable {
     private String taskStatus;
     private String taskParam;
 
-    public long getTaskid() {
-        return taskid;
+    public long getTaskId() {
+        return taskId;
     }
 
-    public void setTaskid(long taskid) {
-        this.taskid = taskid;
+    public void setTaskId(long taskId) {
+        this.taskId = taskId;
     }
 
     public String getTaskName() {

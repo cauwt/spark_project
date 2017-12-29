@@ -41,16 +41,16 @@ public class MockData {
         Random random = new Random();
 
         for(int i = 0; i < 100; i++) {
-            long userid = random.nextInt(100);
+            long userId = random.nextInt(100);
 
             for(int j = 0; j < 10; j++) {
-                String sessionid = UUID.randomUUID().toString().replace("-", "");
+                String sessionId = UUID.randomUUID().toString().replace("-", "");
                 String baseActionTime = date + " " + random.nextInt(23);
 
                 Long clickCategoryId = null;
 
                 for(int k = 0; k < random.nextInt(100); k++) {
-                    long pageid = random.nextInt(10);
+                    long pageId = random.nextInt(10);
                     String actionTime = baseActionTime + ":" + StringUtils.fulfuill(String.valueOf(random.nextInt(59))) + ":" + StringUtils.fulfuill(String.valueOf(random.nextInt(59)));
                     String searchKeyword = null;
                     Long clickProductId = null;
@@ -75,8 +75,8 @@ public class MockData {
                         payProductIds = String.valueOf(random.nextInt(100));
                     }
 
-                    Row row = RowFactory.create(date, userid, sessionid,
-                            pageid, actionTime, searchKeyword,
+                    Row row = RowFactory.create(date, userId, sessionId,
+                            pageId, actionTime, searchKeyword,
                             clickCategoryId, clickProductId,
                             orderCategoryIds, orderProductIds,
                             payCategoryIds, payProductIds,
@@ -113,7 +113,7 @@ public class MockData {
         rows.clear();
         String[] sexes = new String[]{"male", "female"};
         for(int i = 0; i < 100; i ++) {
-            long userid = i;
+            long userId = i;
             String username = "user" + i;
             String name = "name" + i;
             int age = random.nextInt(60);
@@ -121,7 +121,7 @@ public class MockData {
             String city = "city" + random.nextInt(100);
             String sex = sexes[random.nextInt(2)];
 
-            Row row = RowFactory.create(userid, username, name, age,
+            Row row = RowFactory.create(userId, username, name, age,
                     professional, city, sex);
             rows.add(row);
         }

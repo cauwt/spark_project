@@ -30,10 +30,10 @@ public class SessionDetailDAOImpl implements ISessionDetailDAO, Serializable {
                 ", pay_category_ids" +
                 ", pay_product_ids) " +
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?);";
-        Object[] params = new Object[]{sessionDetail.getTaskid()
-                ,sessionDetail.getUserid()
-                ,sessionDetail.getSessionid()
-                ,sessionDetail.getPageid()
+        Object[] params = new Object[]{sessionDetail.getTaskId()
+                ,sessionDetail.getUserId()
+                ,sessionDetail.getSessionId()
+                ,sessionDetail.getPageId()
                 ,sessionDetail.getActionTime()
                 ,sessionDetail.getSearchKeyword()
                 ,sessionDetail.getClickCategoryId()

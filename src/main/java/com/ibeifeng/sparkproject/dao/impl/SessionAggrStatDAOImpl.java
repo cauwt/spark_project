@@ -16,7 +16,7 @@ public class SessionAggrStatDAOImpl implements ISessionAggrStatDAO {
                 "`1m_3m`,`3m_10m`,`10m_30m`,`30m`," +
                 "`1_3`,`4_6`,`7_9`,`10_30`,`30_60`,`60`) " +
                 "values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-        Object[] params = new Object[]{sessionAggrStat.getTaskid()
+        Object[] params = new Object[]{sessionAggrStat.getTaskId()
                 ,sessionAggrStat.getSession_count()
                 ,sessionAggrStat.getTime_period_1s_3s_ratio()
                 ,sessionAggrStat.getTime_period_4s_6s_ratio()

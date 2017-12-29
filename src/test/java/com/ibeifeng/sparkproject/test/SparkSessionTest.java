@@ -43,16 +43,16 @@ public class SparkSessionTest {
         Random random = new Random();
 
         for(int i = 0; i < 100; i++) {
-            long userid = random.nextInt(100);
+            long userId = random.nextInt(100);
 
             for(int j = 0; j < 10; j++) {
-                String sessionid = UUID.randomUUID().toString().replace("-", "");
+                String sessionId = UUID.randomUUID().toString().replace("-", "");
                 String baseActionTime = date + " " + random.nextInt(23);
 
                 Long clickCategoryId = null;
 
                 for(int k = 0; k < random.nextInt(100); k++) {
-                    long pageid = random.nextInt(10);
+                    long pageId = random.nextInt(10);
                     String actionTime = baseActionTime + ":" + StringUtils.fulfuill(String.valueOf(random.nextInt(59))) + ":" + StringUtils.fulfuill(String.valueOf(random.nextInt(59)));
                     String searchKeyword = null;
                     Long clickProductId = null;
@@ -77,8 +77,8 @@ public class SparkSessionTest {
                         payProductIds = String.valueOf(random.nextInt(100));
                     }
 
-                    Row row = RowFactory.create(date, userid, sessionid,
-                            pageid, actionTime, searchKeyword,
+                    Row row = RowFactory.create(date, userId, sessionId,
+                            pageId, actionTime, searchKeyword,
                             clickCategoryId, clickProductId,
                             orderCategoryIds, orderProductIds,
                             payCategoryIds, payProductIds,

@@ -18,9 +18,9 @@ public interface Constants {
     String JDBC_USER_PROD = "jdbc.user.prod";
     String JDBC_PASSWORD_PROD = "jdbc.password.prod";
     String SPARK_LOCAL = "spark.local";
-    String SPARK_LOCAL_TASKID_SESSION = "spark.local.taskid.spark";
-    String SPARK_LOCAL_TASKID_PAGE = "spark.local.taskid.page";
-    String SPARK_LOCAL_TASKID_PRODUCT = "spark.local.taskid.product";
+    String SPARK_LOCAL_TASKID_SESSION = "spark.local.taskId.spark";
+    String SPARK_LOCAL_TASKID_PAGE = "spark.local.taskId.page";
+    String SPARK_LOCAL_TASKID_PRODUCT = "spark.local.taskId.product";
     String KAFKA_METADATA_BROKER_LIST = "kafka.metadata.broker.list";
     String KAFKA_TOPICS = "kafka.topics";
 
@@ -29,7 +29,7 @@ public interface Constants {
      */
     String SPARK_APP_NAME_SESSION = "UserVisitSessionAnalyzeSpark";
     String SPARK_APP_NAME_PAGE = "PageOneStepConvertRateSpark";
-    String FIELD_SESSION_ID = "sessionid";
+    String FIELD_SESSION_ID = "sessionId";
     String FIELD_SEARCH_KEYWORDS = "searchKeywords";
     String FIELD_CLICK_CATEGORY_IDS = "clickCategoryIds";
     String FIELD_AGE = "age";
@@ -42,7 +42,7 @@ public interface Constants {
     String FIELD_CLICK_COUNT = "clickCount";
     String FIELD_ORDER_COUNT = "orderCount";
     String FIELD_PAY_COUNT = "payCount";
-    String FIELD_CATEGORY_ID = "categoryid";
+    String FIELD_CATEGORY_ID = "categoryId";
     String TABLE_USER_VISIT_ACTION = "user_visit_action";
     String TABLE_USER_INFO = "user_info";
     String TABLE_PRODUCT_INFO = "product_info";

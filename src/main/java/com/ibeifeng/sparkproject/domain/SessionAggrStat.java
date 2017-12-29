@@ -5,7 +5,7 @@ package com.ibeifeng.sparkproject.domain;
  */
 public class SessionAggrStat {
 
-    private long taskid;
+    private long taskId;
     private long session_count;
     private double time_period_1s_3s_ratio;
     private double time_period_4s_6s_ratio;
@@ -23,12 +23,12 @@ public class SessionAggrStat {
     private double step_period_30_60_ratio;
     private double step_period_60_ratio;
 
-    public long getTaskid() {
-        return taskid;
+    public long getTaskId() {
+        return taskId;
     }
 
-    public void setTaskid(long taskid) {
-        this.taskid = taskid;
+    public void setTaskId(long taskId) {
+        this.taskId = taskId;
     }
 
     public long getSession_count() {

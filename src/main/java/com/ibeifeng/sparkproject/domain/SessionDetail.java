@@ -6,10 +6,10 @@ import java.io.Serializable;
  * Created by zkpk on 12/26/17.
  */
 public class SessionDetail {
-    private Long taskid;
-    private Long userid;
-    private String sessionid;
-    private Long pageid;
+    private Long taskId;
+    private Long userId;
+    private String sessionId;
+    private Long pageId;
     private String pageName;
     private String actionTime;
     private String searchKeyword;
@@ -20,36 +20,36 @@ public class SessionDetail {
     private String payCategoryIds;
     private String payProductIds;
 
-    public Long getTaskid() {
-        return taskid;
+    public Long getTaskId() {
+        return taskId;
     }
 
-    public void setTaskid(Long taskid) {
-        this.taskid = taskid;
+    public void setTaskId(Long taskId) {
+        this.taskId = taskId;
     }
 
-    public Long getUserid() {
-        return userid;
+    public Long getUserId() {
+        return userId;
     }
 
-    public void setUserid(Long userid) {
-        this.userid = userid;
+    public void setUserId(Long userId) {
+        this.userId = userId;
     }
 
-    public String getSessionid() {
-        return sessionid;
+    public String getSessionId() {
+        return sessionId;
     }
 
-    public void setSessionid(String sessionid) {
-        this.sessionid = sessionid;
+    public void setSessionId(String sessionId) {
+        this.sessionId = sessionId;
     }
 
-    public Long getPageid() {
-        return pageid;
+    public Long getPageId() {
+        return pageId;
     }
 
-    public void setPageid(Long pageid) {
-        this.pageid = pageid;
+    public void setPageId(Long pageId) {
+        this.pageId = pageId;
     }
 
     public String getPageName() {
