@@ -11,8 +11,10 @@ import com.ibeifeng.sparkproject.util.*;
 import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.PairFunction;
+import org.apache.spark.broadcast.Broadcast;
 import org.apache.spark.sql.*;
 import org.apache.spark.sql.hive.HiveContext;
 import org.apache.spark.sql.types.DataTypes;
@@ -73,7 +75,7 @@ public class UserVisitSessionAnalysisSpark {
         calculateAndPersistAggrStat(sessionAggrAccumulator.value(), task.getTaskId());
 
         // extract sessions randomly
-        randomExtractSession(task.getTaskId()
+        randomExtractSession(spark,task.getTaskId()
                 , filteredSessionId2AggrInfoRDD
                 , sessionId2DetailRDD);
 
@@ -400,7 +402,7 @@ public class UserVisitSessionAnalysisSpark {
      * @param sessionId2AggrInfoRDD
      * @return (yyyy-MM-dd_HH, aggrInfo)
      */
-    private static void randomExtractSession(final long taskId
+    private static void randomExtractSession(SparkSession spark, final long taskId
             , JavaPairRDD<String, String> sessionId2AggrInfoRDD,JavaPairRDD<String, Row> sessionId2ActionRDD) {
         // step 1. count sessions per hour per day. return <yyyy-MM-dd_HH, sessionId>
         JavaPairRDD<String, String> time2SessionIdRDD = sessionId2AggrInfoRDD.mapToPair(
@@ -416,7 +418,6 @@ public class UserVisitSessionAnalysisSpark {
         // per hour per day
         // step 2.1. transform <yyyy-MM-dd_HH,count> to <yyyy-MM-dd,<HH,count>>
         Map<String, Map<String, Long>> dateHourCountMap = new HashMap();
-        Random random = new Random();
         countMap.forEach((dateHour,count) ->{
             String date = dateHour.split("_")[0];
             String hour = dateHour.split("_")[1];
@@ -431,7 +432,10 @@ public class UserVisitSessionAnalysisSpark {
         // step 2.2. implement the algorithm of time-ratio-random-extraction
         int extractNumberPerDay = 100/dateHourCountMap.size();
         // <date,<hour,[3,5,20]>>
+        // broadcast
         final Map<String, Map<String,List<Integer>>> dateHourExtractMap = new HashMap<>();
+
+        Random random = new Random();
         dateHourCountMap.forEach((date,hourCountMap)->{
             //calculate the session count on the date
             Long sessionCount = 0L;
@@ -476,7 +480,9 @@ public class UserVisitSessionAnalysisSpark {
                 }
             }
         });
-
+        JavaSparkContext sc = new JavaSparkContext(spark.sparkContext());
+        final Broadcast<Map<String, Map<String,List<Integer>>>> dateHourExtractMapBroadcast =
+                sc.broadcast(dateHourExtractMap);
         // step 3: extract sessions from time2SessionIdRDD according to session ids extracted randomly
         // do groupBy to get <dateHour, (session aggrInfo)>
         JavaPairRDD<String, Iterable<String>> time2SessionsRDD = time2SessionIdRDD.groupByKey();
@@ -491,7 +497,8 @@ public class UserVisitSessionAnalysisSpark {
             String dateHour = tuple._1;
             String date = dateHour.split("_")[0];
             String hour = dateHour.split("_")[1];
-            List<Integer> extractIndexList = dateHourExtractMap.get(date).get(hour);
+            Map<String, Map<String,List<Integer>>> dateHourExtractMap0 = dateHourExtractMapBroadcast.getValue();
+            List<Integer> extractIndexList = dateHourExtractMap0.get(date).get(hour);
 
             ISessionRandomExtractDAO sessionRandomExtractDAO = DAOFactory.getSessionRandomExtractDAO();
 
