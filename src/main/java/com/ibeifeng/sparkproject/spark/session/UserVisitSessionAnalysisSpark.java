@@ -35,7 +35,8 @@ public class UserVisitSessionAnalysisSpark {
                 .master("local")
                 .appName(Constants.SPARK_APP_NAME_SESSION)
                 .getOrCreate();
-
+        spark.conf().set("spark.serializer","org.apache.spark.serializer.KryoSerializer");
+        spark.conf().set("spark.kryo.registrator", ToKryoRegistrator.class.getName());
         mockData(spark);
 
         long taskId = ParamUtils.getTaskIdFromArgs(args);
