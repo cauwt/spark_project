@@ -8,6 +8,8 @@ import com.ibeifeng.sparkproject.dao.factory.DAOFactory;
 import com.ibeifeng.sparkproject.domain.*;
 import com.ibeifeng.sparkproject.spark.MockData;
 import com.ibeifeng.sparkproject.util.*;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
@@ -36,6 +38,8 @@ public class UserVisitSessionAnalysisSpark {
                 .appName(Constants.SPARK_APP_NAME_SESSION)
                 .getOrCreate();
         spark.conf().set("spark.serializer","org.apache.spark.serializer.KryoSerializer");
+        spark.conf().set("spark.memory.storageFraction","0.5");
+        spark.conf().set("spark.shuffle.consolidateFiles","true");
         spark.conf().set("spark.kryo.registrator", ToKryoRegistrator.class.getName());
         mockData(spark);
 
@@ -400,8 +404,10 @@ public class UserVisitSessionAnalysisSpark {
     }
     /**
      * extract sessions randomly
+     * @param spark
+     * @param taskId
      * @param sessionId2AggrInfoRDD
-     * @return (yyyy-MM-dd_HH, aggrInfo)
+     * @param sessionId2ActionRDD
      */
     private static void randomExtractSession(SparkSession spark, final long taskId
             , JavaPairRDD<String, String> sessionId2AggrInfoRDD,JavaPairRDD<String, Row> sessionId2ActionRDD) {
@@ -481,9 +487,24 @@ public class UserVisitSessionAnalysisSpark {
                 }
             }
         });
+
+        // use fastutil collections to tune the performance
+        Map<String, Map<String,IntList>> fastutilDateHourExtractMap = new HashMap<>();
+        dateHourExtractMap.forEach((date,hourExtractMap)->{
+            Map<String,IntList> fastutilHourExtractMap = new HashMap<>();
+            hourExtractMap.forEach((hour,extractList)->{
+                IntList fastutilExtractList = new IntArrayList();
+                extractList.forEach(extractListEntry -> {
+                    fastutilExtractList.add(extractListEntry);
+                });
+                fastutilHourExtractMap.put(hour,fastutilExtractList);
+            });
+            fastutilDateHourExtractMap.put(date,fastutilHourExtractMap);
+        });
+        // broadcast the map
         JavaSparkContext sc = new JavaSparkContext(spark.sparkContext());
-        final Broadcast<Map<String, Map<String,List<Integer>>>> dateHourExtractMapBroadcast =
-                sc.broadcast(dateHourExtractMap);
+        final Broadcast<Map<String, Map<String,IntList>>> dateHourExtractMapBroadcast =
+                sc.broadcast(fastutilDateHourExtractMap);
         // step 3: extract sessions from time2SessionIdRDD according to session ids extracted randomly
         // do groupBy to get <dateHour, (session aggrInfo)>
         JavaPairRDD<String, Iterable<String>> time2SessionsRDD = time2SessionIdRDD.groupByKey();
@@ -498,8 +519,8 @@ public class UserVisitSessionAnalysisSpark {
             String dateHour = tuple._1;
             String date = dateHour.split("_")[0];
             String hour = dateHour.split("_")[1];
-            Map<String, Map<String,List<Integer>>> dateHourExtractMap0 = dateHourExtractMapBroadcast.getValue();
-            List<Integer> extractIndexList = dateHourExtractMap0.get(date).get(hour);
+            Map<String, Map<String,IntList>> dateHourExtractMap0 = dateHourExtractMapBroadcast.getValue();
+            IntList extractIndexList = dateHourExtractMap0.get(date).get(hour);
 
             ISessionRandomExtractDAO sessionRandomExtractDAO = DAOFactory.getSessionRandomExtractDAO();
 
@@ -523,7 +544,7 @@ public class UserVisitSessionAnalysisSpark {
                     // write to table
                     sessionRandomExtractDAO.insert(sessionRandomExtract);
                     // add sessionId to the list
-                    extractSessionIds.add(new Tuple2<String,String>(sessionId,sessionId));
+                    extractSessionIds.add(new Tuple2<>(sessionId,sessionId));
                 }
                 index++;
             }
