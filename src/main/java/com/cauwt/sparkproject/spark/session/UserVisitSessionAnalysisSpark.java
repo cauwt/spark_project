@@ -777,7 +777,17 @@ public class UserVisitSessionAnalysisSpark {
         JavaPairRDD<String, Row> clickActionRDD = sessionId2DetailRDD.filter(tuple -> !tuple._2.isNullAt(6));
         JavaPairRDD<Long, Long> clickCategoryIdRDD = clickActionRDD.mapToPair(tuple ->
                 new Tuple2<>(tuple._2.getLong(6),1L));
-        return clickCategoryIdRDD.reduceByKey((x,y)-> x +y);
+        JavaPairRDD<String, Long> mappedClickCategoryIdRDD = clickCategoryIdRDD.mapToPair(tuple ->{
+            Random random = new Random();
+            return new Tuple2<>(random.nextInt(10) + "_"+tuple._1,tuple._2);
+        });
+        JavaPairRDD<String, Long> firstAggrRDD = mappedClickCategoryIdRDD.reduceByKey((x,y)-> x +y);
+        JavaPairRDD<Long, Long> restoredRDD = firstAggrRDD.mapToPair(tuple -> {
+            Long categoryId = Long.valueOf(tuple._1.split("_")[1]);
+            return new Tuple2<>(categoryId,tuple._2);
+        });
+
+        return restoredRDD.reduceByKey((x,y)-> x +y);
 
     }
     private static JavaPairRDD<Long,Long> getOrderCategoryId2CountRDD(JavaPairRDD<String, Row> sessionId2DetailRDD) {
