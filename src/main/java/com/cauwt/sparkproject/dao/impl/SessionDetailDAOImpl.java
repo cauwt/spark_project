@@ -5,6 +5,8 @@ import com.cauwt.sparkproject.domain.SessionDetail;
 import com.cauwt.sparkproject.jdbc.JDBCHelper;
 
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Created by zkpk on 11/14/17.
@@ -43,5 +45,44 @@ public class SessionDetailDAOImpl implements ISessionDetailDAO, Serializable {
         };
         JDBCHelper jdbcHelper = JDBCHelper.getInstance();
         jdbcHelper.executeUpdate(sql,params);
+    }
+
+    @Override
+    public void insertBatch(List<SessionDetail> sessionDetails) {
+        String sql = "INSERT INTO session_detail (" +
+                "task_id" +
+                ", user_id" +
+                ", session_id" +
+                ", page_id" +
+                ", action_time" +
+                ", search_keyword" +
+                ", click_category_id" +
+                ", click_product_id" +
+                ", order_category_ids" +
+                ", order_product_ids" +
+                ", pay_category_ids" +
+                ", pay_product_ids) " +
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?);";
+        List<Object[]> paramsList = new ArrayList<>();
+        sessionDetails.forEach(sessionDetail ->{
+            Object[] params = new Object[]{sessionDetail.getTaskId()
+                    ,sessionDetail.getUserId()
+                    ,sessionDetail.getSessionId()
+                    ,sessionDetail.getPageId()
+                    ,sessionDetail.getActionTime()
+                    ,sessionDetail.getSearchKeyword()
+                    ,sessionDetail.getClickCategoryId()
+                    ,sessionDetail.getClickProductId()
+                    ,sessionDetail.getOrderCategoryIds()
+                    ,sessionDetail.getOrderProductIds()
+                    ,sessionDetail.getPayCategoryIds()
+                    ,sessionDetail.getPayProductIds()
+            };
+            paramsList.add(params);
+
+        });
+        JDBCHelper jdbcHelper = JDBCHelper.getInstance();
+        jdbcHelper.executeBatch(sql,paramsList);
+
     }
 }

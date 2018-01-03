@@ -49,6 +49,7 @@ public class UserVisitSessionAnalysisSpark {
         ITaskDAO taskDAO = DAOFactory.getTaskDAO();
         Task task = taskDAO.findById(taskId);
         JSONObject taskParam = JSONObject.parseObject(task.getTaskParam());
+        //get action rdd
         JavaRDD<Row> actionRDD = getActionRDD(spark,taskParam);
 
         // get sessionId 2 action and persist it
@@ -157,7 +158,15 @@ public class UserVisitSessionAnalysisSpark {
      * @return sessionId, row(session details)
      */
     private static JavaPairRDD<String, Row> getSessionId2ActionRDD(JavaRDD<Row> actionRDD) {
-        return actionRDD.mapToPair(row -> new Tuple2<>(row.getString(2),row));
+        //return actionRDD.mapToPair(row -> new Tuple2<>(row.getString(2),row));
+        return actionRDD.mapPartitionsToPair(rows -> {
+            List<Tuple2<String,Row>> list = new ArrayList<>();
+            while (rows.hasNext()){
+                Row row = rows.next();
+                list.add(new Tuple2<>(row.getString(2),row));
+            }
+            return list.iterator();
+        });
     }
 
     /**
@@ -557,23 +566,29 @@ public class UserVisitSessionAnalysisSpark {
 
         ISessionDetailDAO sessionDetailDAO = DAOFactory.getSessionDetailDAO();
 
-        extractSessionDetailRDD.foreach(item ->{
-            Row row = item._2._2;
-            SessionDetail sessionDetail = new SessionDetail();
-            sessionDetail.setTaskId(taskId);
-            sessionDetail.setUserId(row.getLong(1));
-            sessionDetail.setSessionId(row.getString(2));
-            sessionDetail.setPageId(row.getLong(3));
-            sessionDetail.setActionTime(row.getString(4));
-            sessionDetail.setSearchKeyword(row.getString(5));
-            sessionDetail.setClickCategoryId(row.isNullAt(6)? null: row.getLong(6));
-            sessionDetail.setClickProductId(row.isNullAt(7)? null: row.getLong(7));
-            sessionDetail.setOrderCategoryIds(row.getString(8));
-            sessionDetail.setOrderProductIds(row.getString(9));
-            sessionDetail.setPayCategoryIds(row.getString(10));
-            sessionDetail.setPayProductIds(row.getString(11));
-            sessionDetailDAO.insert(sessionDetail);
+        extractSessionDetailRDD.foreachPartition(itemIterator ->{
+            List<SessionDetail> sessionDetails = new ArrayList<>();
+            while(itemIterator.hasNext()){
+                Tuple2<String, Tuple2<String, Row>> item = itemIterator.next();
+                Row row = item._2._2;
+                SessionDetail sessionDetail = new SessionDetail();
+                sessionDetail.setTaskId(taskId);
+                sessionDetail.setUserId(row.getLong(1));
+                sessionDetail.setSessionId(row.getString(2));
+                sessionDetail.setPageId(row.getLong(3));
+                sessionDetail.setActionTime(row.getString(4));
+                sessionDetail.setSearchKeyword(row.getString(5));
+                sessionDetail.setClickCategoryId(row.isNullAt(6)? null: row.getLong(6));
+                sessionDetail.setClickProductId(row.isNullAt(7)? null: row.getLong(7));
+                sessionDetail.setOrderCategoryIds(row.getString(8));
+                sessionDetail.setOrderProductIds(row.getString(9));
+                sessionDetail.setPayCategoryIds(row.getString(10));
+                sessionDetail.setPayProductIds(row.getString(11));
+                sessionDetails.add(sessionDetail);
+            }
+            sessionDetailDAO.insertBatch(sessionDetails);
         });
+
     }
 
     /**
@@ -976,22 +991,27 @@ public class UserVisitSessionAnalysisSpark {
 
         ISessionDetailDAO sessionDetailDAO = DAOFactory.getSessionDetailDAO();
 
-        top10SessionDetailRDD.foreach(item ->{
-            Row row = item._2._2;
-            SessionDetail sessionDetail = new SessionDetail();
-            sessionDetail.setTaskId(taskId);
-            sessionDetail.setUserId(row.getLong(1));
-            sessionDetail.setSessionId(row.getString(2));
-            sessionDetail.setPageId(row.getLong(3));
-            sessionDetail.setActionTime(row.getString(4));
-            sessionDetail.setSearchKeyword(row.getString(5));
-            sessionDetail.setClickCategoryId(row.isNullAt(6)? null: row.getLong(6));
-            sessionDetail.setClickProductId(row.isNullAt(7)? null: row.getLong(7));
-            sessionDetail.setOrderCategoryIds(row.getString(8));
-            sessionDetail.setOrderProductIds(row.getString(9));
-            sessionDetail.setPayCategoryIds(row.getString(10));
-            sessionDetail.setPayProductIds(row.getString(11));
-            sessionDetailDAO.insert(sessionDetail);
+        top10SessionDetailRDD.foreachPartition(itemList ->{
+            List<SessionDetail> sessionDetails = new ArrayList<>();
+            while(itemList.hasNext()){
+                Tuple2<String, Tuple2<String, Row>> item = itemList.next();
+                Row row = item._2._2;
+                SessionDetail sessionDetail = new SessionDetail();
+                sessionDetail.setTaskId(taskId);
+                sessionDetail.setUserId(row.getLong(1));
+                sessionDetail.setSessionId(row.getString(2));
+                sessionDetail.setPageId(row.getLong(3));
+                sessionDetail.setActionTime(row.getString(4));
+                sessionDetail.setSearchKeyword(row.getString(5));
+                sessionDetail.setClickCategoryId(row.isNullAt(6)? null: row.getLong(6));
+                sessionDetail.setClickProductId(row.isNullAt(7)? null: row.getLong(7));
+                sessionDetail.setOrderCategoryIds(row.getString(8));
+                sessionDetail.setOrderProductIds(row.getString(9));
+                sessionDetail.setPayCategoryIds(row.getString(10));
+                sessionDetail.setPayProductIds(row.getString(11));
+                sessionDetails.add(sessionDetail);
+            }
+            sessionDetailDAO.insertBatch(sessionDetails);
         });
 
 
