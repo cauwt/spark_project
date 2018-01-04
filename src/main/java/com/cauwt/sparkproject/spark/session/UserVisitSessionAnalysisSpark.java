@@ -259,13 +259,22 @@ public class UserVisitSessionAnalysisSpark {
 
         //join sessionAggr and user
         // return <userId, <partAggrInfo, userFullInfo>>
-        JavaPairRDD<Long,Tuple2<String,Row>> userId2FullInfoRDD = userId2PartAggrInfoRDD.join(userId2InfoRDD);
+        //JavaPairRDD<Long,Tuple2<String,Row>> userId2FullInfoRDD = userId2PartAggrInfoRDD.join(userId2InfoRDD);
+        List<Tuple2<Long,Row>> userInfos = userId2InfoRDD.collect();
+        Map<Long,Row> user2InfoMap = new HashMap<>();
+        userInfos.forEach(item ->user2InfoMap.put(item._1,item._2));
+        JavaSparkContext sc = new JavaSparkContext(spark.sparkContext());;
+        final Broadcast<Map<Long,Row>> user2InfoMapBroadcast = sc.broadcast(user2InfoMap);
 
         //return <sessionId,fullAggrInfo(age,professional,city,sex)>
-        JavaPairRDD<String, String> sessionId2FullAggrInfoRDD = userId2FullInfoRDD.mapToPair(
-                (PairFunction<Tuple2<Long,Tuple2<String,Row>>,String,String>) (tuple) ->{
-                    String partAggrInfo = tuple._2._1;
-                    Row row = tuple._2._2;
+        JavaPairRDD<String, String> sessionId2FullAggrInfoRDD = userId2PartAggrInfoRDD.mapToPair(
+                tuple ->{
+
+                    Map<Long,Row> user2InfoMap0 = user2InfoMapBroadcast.value();
+                    Long userId = tuple._1;
+                    String partAggrInfo = tuple._2;
+                    Row row = user2InfoMap0.get(userId);
+
                     String sessionId = StringUtils.getFieldFromConcatString(partAggrInfo,"\\|",Constants.FIELD_SESSION_ID);
                     int age = row.getInt(3);
                     String professional = row.getString(4);
