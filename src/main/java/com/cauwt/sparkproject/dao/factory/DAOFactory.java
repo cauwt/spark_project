@@ -23,10 +23,32 @@ public class DAOFactory {
     public static ISessionDetailDAO getSessionDetailDAO(){
         return new SessionDetailDAOImpl();
     }
+
     public static ITop10CategoryDAO getTop10CategoryDAO(){
         return new Top10CategoryDAOImpl();
     }
+
     public static ITop10CategorySessionDAO getTop10CategorySessionDAO(){
         return new Top10CategorySessionDAOImpl();
+    }
+
+    public static IAdUserClickCountDAO getAdUserClickCountDAO(){
+        return new AdUserClickCountDAOImpl();
+    }
+
+    public static IAdBlacklistDAO getAdBlacklistDAO(){
+        return new AdBlacklistDAOImpl();
+    }
+
+    public static IAdStatDAO getAdStatDAO(){
+        return new AdStatDAOImpl();
+    }
+
+    public static IAdProvinceTop3DAO getAdProvinceTop3DAO(){
+        return new AdProvinceTop3DAOImpl();
+    }
+
+    public static IAdClickTrendDAO getAdClickTrendDAO(){
+        return new AdClickTrendDAOImpl();
     }
 }
