@@ -12,11 +12,11 @@ import java.util.List;
  */
 public class AdBlacklistDAOImpl implements IAdBlacklistDAO {
     @Override
-    public void insertBatch(List<AdBlacklist> adBlackLists) {
+    public void insertBatch(List<AdBlacklist> adBlacklists) {
         JDBCHelper jdbcHelper = JDBCHelper.getInstance();
         String insertSQL = "insert into ad_blacklist(user_id) values(?);";
         List<Object[]> paramsList = new ArrayList<>();
-        for(AdBlacklist adBlacklist: adBlackLists){
+        for(AdBlacklist adBlacklist: adBlacklists){
             Object[] params = new Object[]{adBlacklist.getUserId()};
             paramsList.add(params);
         }

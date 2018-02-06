@@ -8,6 +8,6 @@ import java.util.List;
  * Created by zkpk on 2/4/18.
  */
 public interface IAdUserClickCountDAO {
-    void updateBatch(List<AdUserClickCount> adUserClickCountList);
+    void updateBatch(List<AdUserClickCount> adUserClickCounts);
     Long findClickCountByMultiKey(String date, Long userId, Long adId);
 }

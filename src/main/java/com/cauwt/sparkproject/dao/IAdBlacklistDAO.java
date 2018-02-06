@@ -8,6 +8,6 @@ import java.util.List;
  * Created by zkpk on 2/4/18.
  */
 public interface IAdBlacklistDAO {
-    void insertBatch(List<AdBlacklist> adBlackLists);
+    void insertBatch(List<AdBlacklist> adBlacklists);
     List<AdBlacklist> findAll();
 }
