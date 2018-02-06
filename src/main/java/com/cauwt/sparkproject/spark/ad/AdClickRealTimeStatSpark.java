@@ -112,7 +112,7 @@ public class AdClickRealTimeStatSpark {
         });
         // reduceByKeyWithWindows
         JavaPairDStream<String, Long> aggrDStream = ds1.reduceByKeyAndWindow(
-                (x,y) -> x+y, Durations.minutes(60),Durations.seconds(60));
+                (x,y) -> x+y, Durations.minutes(60),Durations.seconds(10));
 
         // write to database
         aggrDStream.foreachRDD(rdd -> rdd.foreachPartition(partitionOfRecords -> {
